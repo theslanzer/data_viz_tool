@@ -3,12 +3,93 @@ from __future__ import annotations
 import streamlit as st
 import pandas as pd
 import numpy as np
+import streamlit_authenticator as stauth
+import json
+import inspect
 
 # --- Local modules ---
 from modules.io_utils import read_uploaded_file, SUPPORTED_EXTS
 from modules.transformers import apply_transformations, top_labels, aggregate_lift_by_labeltype
 from modules.colors import generate_palette
 from modules.charts import circular_bar_interactive, interactive_wordcloud, bar_lift_by_type_interactive
+
+# -----------------------------
+# Login
+# -----------------------------
+
+def require_login():
+    # Make a mutable copy of secrets (Authenticator mutates credentials)
+    secrets = st.secrets.to_dict() if hasattr(st.secrets, "to_dict") else json.loads(json.dumps(dict(st.secrets)))
+    creds   = secrets.get("credentials", {})
+    authcfg = secrets.get("auth", {})
+
+    authenticator = stauth.Authenticate(
+        credentials=creds,
+        cookie_name=authcfg.get("cookie_name", "viz_builder_auth"),
+        key=authcfg.get("cookie_key", "change_me"),
+        cookie_expiry_days=int(authcfg.get("cookie_expiry_days", 7)),
+        preauthorized=authcfg.get("preauthorized", []),
+    )
+
+    login_func = authenticator.login
+    login_sig = inspect.signature(login_func)
+    login_params = login_sig.parameters
+    requires_form_name = (
+        "form_name" in login_params
+        and login_params["form_name"].default is inspect._empty
+    )
+
+    if requires_form_name:
+        login_result = login_func("Login", "main")
+    else:
+        login_kwargs = {}
+        if "form_name" in login_params and login_params["form_name"].default is not inspect._empty:
+            login_kwargs["form_name"] = "Login"
+        if "location" in login_params:
+            login_kwargs["location"] = "main"
+        if "max_login_attempts" in login_params:
+            login_kwargs["max_login_attempts"] = 3
+        if "fields" in login_params:
+            login_kwargs["fields"] = {"Form name": "Login"}
+        if "key" in login_params:
+            login_kwargs.setdefault("key", "main_login_form")
+        login_result = login_func(**login_kwargs)
+
+    if isinstance(login_result, tuple) and len(login_result) == 3:
+        name, auth_status, username = login_result
+    else:
+        session_state = st.session_state
+        name = session_state.get("name")
+        auth_status = session_state.get("authentication_status")
+        username = session_state.get("username")
+
+    if auth_status:
+        with st.sidebar:
+            logout_func = authenticator.logout
+            logout_sig = inspect.signature(logout_func)
+            logout_params = logout_sig.parameters
+
+            if "button_name" in logout_params or "location" in logout_params:
+                logout_kwargs = {}
+                if "button_name" in logout_params:
+                    logout_kwargs["button_name"] = "Logout"
+                if "location" in logout_params:
+                    logout_kwargs["location"] = "sidebar"
+                logout_func(**logout_kwargs)
+            else:
+                logout_func("Logout")
+        return {"name": name, "username": username}
+
+    if auth_status is False:
+        st.error("Username/password is incorrect")
+    else:
+        st.warning("Please enter your credentials")
+    return None
+
+login_state = require_login()
+if login_state is None:
+    st.stop()
+
 
 # -----------------------------
 # Helpers

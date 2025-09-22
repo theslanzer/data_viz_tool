@@ -1,0 +1,11 @@
+[server]
+headless = true
+enableCORS = false
+enableXsrfProtection = true
+port = 8501
+# Allow larger uploads if needed (MB)
+maxUploadSize = 200
+
+[theme]
+base = "dark"
+primaryColor = "#6b21a8"

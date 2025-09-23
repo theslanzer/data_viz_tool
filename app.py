@@ -6,12 +6,13 @@ import numpy as np
 import streamlit_authenticator as stauth
 import json
 import inspect
+from typing import Any, Dict, List
 
 # --- Local modules ---
 from modules.io_utils import read_uploaded_file, SUPPORTED_EXTS
 from modules.transformers import apply_transformations, top_labels, aggregate_lift_by_labeltype
 from modules.colors import generate_palette
-from modules.charts import circular_bar_interactive, interactive_wordcloud, bar_lift_by_type_interactive
+from modules.charts import circular_bar_interactive, wordcloud_v2_component, bar_lift_by_type_interactive
 
 # -----------------------------
 # Login
@@ -40,7 +41,7 @@ def require_login():
     )
 
     if requires_form_name:
-        login_result = login_func("Login", "main")
+        login_result = login_func("Login", location="main")
     else:
         login_kwargs = {}
         if "form_name" in login_params and login_params["form_name"].default is not inspect._empty:
@@ -94,21 +95,31 @@ if login_state is None:
 # -----------------------------
 # Helpers
 # -----------------------------
-def render_fig_grid(figs, titles=None, cols=2):
-    """Render Plotly figures in a grid with `cols` columns per row."""
-    if not figs:
+def render_fig_grid(items, cols=2):
+    """Render charts or render callbacks in a grid with `cols` columns per row."""
+    if not items:
         return
-    titles = titles or [""] * len(figs)
     cols = max(1, min(int(cols), 3))
-    for i in range(0, len(figs), cols):
+    for i in range(0, len(items), cols):
         row = st.columns(cols, gap="large")
         for j, col in enumerate(row):
-            k = i + j
-            if k < len(figs):
-                with col:
-                    if titles[k]:
-                        st.markdown(f"##### {titles[k]}")
-                    st.plotly_chart(figs[k], use_container_width=True)
+            idx = i + j
+            if idx >= len(items):
+                break
+            entry = items[idx]
+            if not isinstance(entry, dict):
+                entry = {"figure": entry}
+            title = entry.get("title") or ""
+            with col:
+                if title:
+                    st.markdown(f"##### {title}")
+                figure = entry.get("figure")
+                if figure is not None:
+                    st.plotly_chart(figure, use_container_width=True)
+                else:
+                    renderer = entry.get("render")
+                    if callable(renderer):
+                        renderer()
 
 def _render_labeltype_chips(df: pd.DataFrame):
     if "labelType" not in df.columns:
@@ -192,7 +203,7 @@ with st.sidebar:
     st.header("3) Label type filter")
     if "labelType" in df_transformed.columns:
         types_all = sorted(df_transformed["labelType"].dropna().astype(str).unique().tolist())
-        default_types = ["Noun"] if any(t.lower() == "noun" for t in types_all) else types_all
+        default_types = ["Noun", "Verb", "Phrase"] if any(t.lower() == "noun" for t in types_all) else types_all
         chosen_types = st.multiselect(
             "Choose label types",
             options=types_all,
@@ -315,7 +326,7 @@ if n_rows == 0:
     st.warning("No rows to display after your filters.")
 else:
     palette = generate_palette(hex_input, n=n_rows)
-    figs, titles = [], []
+    chart_items: List[Dict[str, Any]] = []
 
     if "Circular Bar" in chart_choices:
         if not pd.api.types.is_numeric_dtype(df_chart[value_col]):
@@ -329,8 +340,7 @@ else:
                 width=900, height=900,
                 label_wrap=20,
             )
-            figs.append(fig_circ)
-            titles.append("Circular Bar")
+            chart_items.append({"title": "Circular Bar", "figure": fig_circ})
 
     if "Word Cloud" in chart_choices:
         if not pd.api.types.is_numeric_dtype(df_chart[value_col]):
@@ -339,22 +349,54 @@ else:
             wc_input = df_chart[[label_col, value_col]].rename(
                 columns={label_col: "labelName", value_col: "lift"}
             )
-            # Uses your interactive_wordcloud (random placement version recommended)
-            fig_wc = interactive_wordcloud(
-                df=wc_input,
-                label_col="labelName",
-                lift_col="lift",
-                palette_hexes=palette,
-                width=1100, height=650,
-                min_font_px=18, max_font_px=int(wc_max_font),
-                # If your function supports padding, pass it; if not, ignore:
-                padding_px=int(wc_padding) if "padding_px" in interactive_wordcloud.__code__.co_varnames else 6,
-            )
-            figs.append(fig_wc)
-            titles.append("Word Cloud")
+
+            def render_wc(
+                data=wc_input,
+                colors=palette,
+                max_words_wc=min(100, len(wc_input)),
+                font_max_wc=int(wc_max_font),
+                padding_wc=int(wc_padding),
+            ):
+                header_left, header_right = st.columns([0.8, 0.2], gap='small')
+                with header_left:
+                    st.markdown('Hover a word to see Lift (%).')
+                result = wordcloud_v2_component(
+                    df=data,
+                    label_col='labelName',
+                    value_col='lift',
+                    palette_hexes=colors,
+                    width=900,
+                    height=500,
+                    max_words=max_words_wc,
+                    font_min=18,
+                    font_max=font_max_wc,
+                    padding=padding_wc,
+                    prefer_horizontal=1.0,
+                    background_color='white',
+                    tooltip_label='Lift',
+                    component_key=f"wordcloud_main_{value_col}",
+                )
+                if not result:
+                    st.info('Not enough data to render the word cloud.')
+                    return
+                fallback_fig = result.get('figure')
+                image_bytes = result.get('image_bytes')
+                with header_right:
+                    if image_bytes:
+                        st.download_button(
+                            'Download PNG',
+                            data=image_bytes,
+                            file_name='wordcloud.png',
+                            mime='image/png',
+                            key=f"dl_wordcloud_png_{value_col}",
+                            use_container_width=True,
+                        )
+                if fallback_fig is not None:
+                    st.plotly_chart(fallback_fig, use_container_width=True, config={"displayModeBar": False})
+
+            chart_items.append({"title": "Word Cloud", "render": render_wc})
 
     if "Bar Chart" in chart_choices:
-        # Guard for required raw columns
         required = {
             "labelType", "numeratorWhenPresent", "denominatorWhenPresent",
             "numeratorWhenAbsent", "denominatorWhenAbsent"
@@ -363,21 +405,32 @@ else:
         if missing:
             st.error(f"Bar chart needs columns missing in data: {missing}")
         else:
-            agg = aggregate_lift_by_labeltype(df_transformed)
-            # color scale across label types
-            bar_palette = generate_palette(hex_input, n=max(1, agg.shape[0]))
-            fig_bar = bar_lift_by_type_interactive(
-                df=agg,
-                label_col="labelType",
-                lift_col="lift",
-                colors=bar_palette,
-                width=1000, height=600,
-                title="Lift by Label Type (Full dataset)",
-            )
-            figs.append(fig_bar)
-            titles.append("Bar Chart Aggregated Lift")
+            agg_source = df_transformed
+            filtered = False
+            if chosen_types and 'labelType' in agg_source.columns:
+                mask = agg_source['labelType'].astype(str).isin(chosen_types)
+                agg_source = agg_source.loc[mask].copy()
+                filtered = True
+            if agg_source.empty:
+                st.info('No data for the selected label types.')
+            else:
+                agg = aggregate_lift_by_labeltype(agg_source)
+                if agg.empty:
+                    st.info('Aggregation produced no rows for the selected label types.')
+                else:
+                    bar_palette = generate_palette(hex_input, n=max(1, agg.shape[0]))
+                    title_suffix = 'Selected label types' if filtered else 'Full dataset'
+                    fig_bar = bar_lift_by_type_interactive(
+                        df=agg,
+                        label_col='labelType',
+                        lift_col='lift',
+                        colors=bar_palette,
+                        width=1000, height=600,
+                        title=f"Lift by Label Type ({title_suffix})",
+                    )
+                    chart_items.append({"title": "Bar Chart Aggregated Lift", "figure": fig_bar})
 
-    render_fig_grid(figs, titles, cols=grid_cols)
+    render_fig_grid(chart_items, cols=grid_cols)
 
 # -----------------------------
 # Tables (Filtered is default; Transformed tab removed)
@@ -391,15 +444,6 @@ with tab_filtered:
     left, right = st.columns([1, 1])
     with left:
         st.subheader("Filtered (Top-N per type)")
-    with right:
-        st.download_button(
-            "⬇️ Download filtered CSV",
-            data=df_filtered.to_csv(index=False).encode("utf-8"),
-            file_name="filtered.csv",
-            mime="text/csv",
-            use_container_width=True,
-            key="dl_filtered_csv",
-        )
     if df_filtered.shape[0] == 0:
         st.warning("No rows after Top-N / Label Type filters. Adjust your options in the sidebar.")
     else:
@@ -409,17 +453,8 @@ with tab_filtered:
 
 with tab_loaded:
     left, right = st.columns([1, 1])
-    with left:
-        st.subheader("Loaded")
-    with right:
-        st.download_button(
-            "⬇️ Download loaded CSV",
-            data=df_loaded.to_csv(index=False).encode("utf-8"),
-            file_name="loaded.csv",
-            mime="text/csv",
-            use_container_width=True,
-            key="dl_loaded_csv",
-        )
+    st.subheader("Loaded")
     st.dataframe(df_loaded.head(50), use_container_width=True)
     st.caption(f"Rows: {df_loaded.shape[0]:,} • Cols: {df_loaded.shape[1]:,}")
     _render_labeltype_chips(df_loaded)
+

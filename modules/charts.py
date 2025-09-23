@@ -1,10 +1,13 @@
 # modules/charts.py
 from __future__ import annotations
+import base64
+from typing import Any, Dict, List
 import numpy as np
 import pandas as pd
 import textwrap
 import plotly.graph_objects as go
-import random
+
+from modules.exporters import generate_wordcloud_png, resolve_font_path
 
 def _wrap_labels(labels, width=20):
     return ["\n".join(textwrap.wrap(str(x), width=width)) for x in labels]
@@ -56,7 +59,7 @@ def circular_bar_interactive(
     if colors is None or len(colors) < n:
         # Fallback neutral gradient
         colors = ["#a3a3a3"] * n
-    bar_colors = colors[:n]
+    bar_colors = list(reversed(colors[:n]))
 
     # Build base barpolar
     fig = go.Figure(go.Barpolar(
@@ -122,127 +125,234 @@ def circular_bar_interactive(
     )
     return fig
 
-def interactive_wordcloud(
-    df: pd.DataFrame,
-    label_col: str = "labelName",
-    lift_col: str = "lift",
-    palette_hexes: list[str] | None = None,
-    width: int = 1400,
-    height: int = 800,
-    min_font_px: int = 10,
-    max_font_px: int = 48,
-    max_words: int = 200,
-    attempts_per_word: int = 2000,
-    padding_px: float = 8.0,
-) -> go.Figure:
-    """
-    Plotly-based word cloud using random placement with collision detection.
-    """
 
-    data = df[[label_col, lift_col]].dropna().copy()
-    if data.empty:
-        fig = go.Figure()
-        fig.add_annotation(text="No data to display", showarrow=False,
-                           x=0.5, y=0.5, xref="paper", yref="paper")
-        fig.update_layout(width=width, height=height)
-        return fig
+def _resolve_streamlit_wc_func():
+    """Return the callable for the streamlit-wordcloud component if available."""
+    import importlib
 
-    # Aggregate duplicates
-    data = data.groupby(label_col, as_index=False)[lift_col].max()
-    data = data.sort_values(lift_col, ascending=False).head(max_words).reset_index(drop=True)
-
-    # Scale sizes
-    vals = data[lift_col].to_numpy(float)
-    vals_log = np.log1p(vals)
-    lo, hi = vals_log.min(), vals_log.max()
-    if hi - lo < 1e-12:
-        sizes = np.full(vals_log.shape, (min_font_px+max_font_px)/2.0)
-    else:
-        sizes = min_font_px + (vals_log - lo)/(hi-lo) * (max_font_px - min_font_px)
-
-    # Colors: simple gradient (reuse your generate_palette if available)
-    from modules.colors import generate_palette
-    palette = generate_palette(",".join(palette_hexes or ["#6b21a8", "#c026d3"]), n=len(vals))
-    colors = palette
-
-    # Bounding box helper
-    def bbox(word, fs, cx, cy):
-        w = 0.75 * fs * max(1, len(word))
-        h = 1.20 * fs
-        return (cx - w/2 - padding_px, cy - h/2 - padding_px,
-                cx + w/2 + padding_px, cy + h/2 + padding_px)
-
-    def intersects(a, b):
-        return not (a[2] < b[0] or a[0] > b[2] or a[3] < b[1] or a[1] > b[3])
-
-    placed = []
-    for (word, val, fs, col) in zip(data[label_col].astype(str), vals, sizes, colors):
-        ok = False
-        for _ in range(attempts_per_word):
-            x = random.uniform(0, width)
-            y = random.uniform(0, height)
-            box = bbox(word, fs, x, y)
-
-            # Stay inside canvas
-            if box[0] < 0 or box[1] < 0 or box[2] > width or box[3] > height:
-                continue
-
-            # Check overlaps
-            if all(not intersects(box, p[-1]) for p in placed):
-                placed.append((x, y, fs, col, word, val, box))
-                ok = True
-                break
-
-        if not ok:
-            # word skipped if no valid spot found
-            continue
-
-    if not placed:
-        fig = go.Figure()
-        fig.add_annotation(text="No words could be placed.", showarrow=False,
-                           x=0.5, y=0.5, xref="paper", yref="paper")
-        fig.update_layout(width=width, height=height)
-        return fig
-
-    xs  = [p[0] for p in placed]
-    ys  = [p[1] for p in placed]
-    fns = [p[2] for p in placed]
-    cls = [p[3] for p in placed]
-    wrd = [p[4] for p in placed]
-    lft = [p[5] for p in placed]
-
-    default_fs = 12.0  # or float(min_font_px) if available in this scope
-    clean_fns = []
-    for v in fns:
+    module_names = ('streamlit_wordcloud', 'streamlit_wordcloud_v2', 'st_wordcloud')
+    attr_names = ('visualize', 'wordcloud', 'st_wordcloud')
+    for module_name in module_names:
         try:
-            fv = float(v)
-        except Exception:
-            fv = default_fs
-        if not np.isfinite(fv) or fv < 1:
-            fv = max(1.0, default_fs)
-        clean_fns.append(fv)
-    # -------------------------------------------
+            module = importlib.import_module(module_name)
+        except ImportError:
+            continue
+        for attr in attr_names:
+            func = getattr(module, attr, None)
+            if callable(func):
+                return func
+    return None
 
-    fig = go.Figure(go.Scatter(
-        x=xs, y=ys, mode="text",
-        text=wrd,
-        textfont=dict(
-            size=clean_fns,              # 👈 use the sanitized sizes
-            color=cls,
-            family="Arial Black"         # (or your chosen family)
-        ),
-        hovertemplate="<b>%{text}</b><br>Lift: %{customdata:.2f}%<extra></extra>",
-        customdata=lft
-    ))
-    fig.update_xaxes(visible=False, range=[0, width])
-    fig.update_yaxes(visible=False, range=[0, height], scaleanchor="x", scaleratio=1)
-    fig.update_layout(
-        width=width, height=height,
-        plot_bgcolor="white", paper_bgcolor="white",
-        margin=dict(l=10, r=10, t=10, b=10),
-        dragmode="pan"
+
+def wordcloud_v2_component(
+    df: pd.DataFrame,
+    label_col: str = 'labelName',
+    value_col: str = 'lift',
+    palette_hexes: List[str] | None = None,
+    width: int | str = 1100,
+    height: int | str = 650,
+    max_words: int = 100,
+    font_min: int = 14,
+    font_max: int = 60,
+    padding: int = 6,
+    prefer_horizontal: float = 1.0,
+    background_color: str = 'white',
+    bold: bool = True,
+    tooltip_label: str = 'Lift (%)',
+    component_key: str | None = None,
+) -> Dict[str, Any] | None:
+    import inspect
+
+    data = df[[label_col, value_col]].dropna().copy()
+    if data.empty:
+        return None
+
+    data = data.groupby(label_col, as_index=False)[value_col].max()
+    data = data.sort_values(by=value_col, ascending=False).head(int(max_words)).reset_index(drop=True)
+    data = data[data[value_col] > 0]
+    if data.empty:
+        return None
+
+    palette = list(palette_hexes) if palette_hexes else ['#1f77b4']
+    if not palette:
+        palette = ['#1f77b4']
+
+    label_values = data[label_col].astype(str).tolist()
+    color_map = {word: palette[idx % len(palette)] for idx, word in enumerate(label_values)}
+    lift_map = {word: float(val) for word, val in zip(label_values, data[value_col].astype(float))}
+
+    def _coerce_dimension(raw: int | str, fallback: int) -> int:
+        if isinstance(raw, (int, float)):
+            return max(int(raw), 10)
+        if isinstance(raw, str):
+            stripped = raw.strip().lower()
+            for suffix in ('px',):
+                if stripped.endswith(suffix):
+                    stripped = stripped[:-len(suffix)]
+            digits = ''.join(ch for ch in stripped if (ch.isdigit() or ch == '.'))
+            try:
+                if digits:
+                    return max(int(float(digits)), 10)
+            except ValueError:
+                pass
+        return fallback
+
+    width_px = _coerce_dimension(width, 1100)
+    height_px = _coerce_dimension(height, 650)
+
+    try:
+        horizontal_ratio = float(prefer_horizontal)
+    except (TypeError, ValueError):
+        horizontal_ratio = 1.0
+    horizontal_ratio = max(0.0, min(1.0, horizontal_ratio)) or 1.0
+
+    size_low = float(font_min) if font_min is not None else 14.0
+    size_high = float(font_max) if font_max is not None else 60.0
+    wc, image_bytes = generate_wordcloud_png(
+        df=data[[label_col, value_col]].rename(columns={label_col: 'labelName', value_col: 'lift'}),
+        label_col='labelName',
+        value_col='lift',
+        palette_hexes=palette,
+        width=width_px,
+        height=height_px,
+        size_range=(size_low, size_high),
+        prefer_horizontal=horizontal_ratio,
+        background_color=background_color,
     )
-    return fig
+
+
+
+    words_payload: List[Dict[str, Any]] = []
+    for idx, row in data.iterrows():
+        word_text = str(row[label_col])
+        if not word_text:
+            continue
+        lift_value = float(row[value_col])
+        item: Dict[str, Any] = {
+            'text': word_text,
+            'value': lift_value,
+            'lift': lift_value,
+        }
+        if palette_hexes:
+            item['color'] = palette_hexes[idx % len(palette_hexes)]
+        if bold:
+            item['fontWeight'] = 'bold'
+        words_payload.append(item)
+
+    if not words_payload:
+        return None
+
+    wc_func = _resolve_streamlit_wc_func()
+    component_value = None
+    if wc_func is not None:
+        width_arg = f"{width_px}px"
+        height_arg = f"{height_px}px"
+        tooltip_fields = {'text': 'Label', 'lift': tooltip_label}
+        component_kwargs = {
+            'words': words_payload,
+            'width': width_arg,
+            'height': height_arg,
+            'font_min': int(font_min),
+            'font_max': int(font_max),
+            'max_words': int(max_words),
+            'padding': int(padding),
+            'layout': 'rectangular',
+            'enable_tooltip': True,
+            'tooltip_data_fields': tooltip_fields,
+            'per_word_coloring': True,
+            'ignore_hover': True,
+            'ignore_click': True,
+            'key': component_key,
+            'fontFamily': 'Arial',
+            'deterministic': True,
+        }
+        allowed = set(inspect.signature(wc_func).parameters.keys())
+        clean_kwargs = {k: v for k, v in component_kwargs.items() if k in allowed and v is not None}
+        component_value = wc_func(**clean_kwargs)
+
+    fallback_fig = None
+    if wc_func is None:
+        from PIL import ImageFont
+
+        src_width, src_height = wc.width, wc.height
+        scale_x = src_width / max(width_px, 1)
+        scale_y = src_height / max(height_px, 1)
+
+        effective_font_path = wc.font_path or resolve_font_path()
+        font_cache: Dict[int, ImageFont.FreeTypeFont] = {}
+
+        def _measure(word: str, font_size: int) -> tuple[int, int]:
+            if font_size not in font_cache:
+                try:
+                    font_cache[font_size] = ImageFont.truetype(effective_font_path, max(font_size, 1))
+                except Exception:
+                    font_cache[font_size] = ImageFont.load_default()
+            bbox = font_cache[font_size].getbbox(word)
+            width_val = bbox[2] - bbox[0]
+            height_val = bbox[3] - bbox[1]
+            return max(width_val, 1), max(height_val, 1)
+
+        xs: List[float] = []
+        ys: List[float] = []
+        words_plot: List[str] = []
+        text_sizes: List[int] = []
+        text_colors: List[str] = []
+        hover_vals: List[float] = []
+
+        for (word, _freq), font_size, (x, y), orientation, color in wc.layout_:
+            word_text = str(word)
+            if not word_text:
+                continue
+            base_size = max(int(round(font_size / max(scale_x, 1))), 1)
+            text_width, text_height = _measure(word_text, base_size)
+            if orientation and orientation != 0:
+                text_width, text_height = text_height, text_width
+            center_x = (x + text_width / 2) / max(scale_x, 1)
+            center_y = (y + text_height / 2) / max(scale_y, 1)
+            words_plot.append(word_text)
+            xs.append(center_x)
+            ys.append(center_y)
+            text_sizes.append(base_size)
+            text_colors.append(color or color_map.get(word_text, '#1f2937'))
+            hover_vals.append(lift_map.get(word_text, 0.0))
+
+        fallback_fig = go.Figure(
+            go.Scatter(
+                x=xs,
+                y=ys,
+                mode='text',
+                text=words_plot,
+                textposition='middle center',
+                textfont=dict(
+                    family='Arial',
+                    size=text_sizes,
+                    color=text_colors,
+                ),
+                customdata=hover_vals,
+                hovertemplate=f"<b>%{text}</b><br>{tooltip_label}: %{customdata:.1f}%<extra></extra>",
+            )
+        )
+        fallback_fig.update_layout(
+            width=width_px,
+            height=height_px,
+            margin=dict(l=0, r=0, t=0, b=0),
+            plot_bgcolor=background_color,
+            paper_bgcolor=background_color,
+            hoverlabel=dict(font=dict(family='Arial')),
+        )
+        fallback_fig.update_xaxes(visible=False, showgrid=False, zeroline=False, range=[0, width_px])
+        fallback_fig.update_yaxes(visible=False, showgrid=False, zeroline=False, range=[height_px, 0], scaleanchor='x', scaleratio=1)
+
+    result: Dict[str, Any] = {
+        'image_bytes': image_bytes,
+        'data': data[[label_col, value_col]].copy(),
+    }
+    if component_value is not None:
+        result['component_value'] = component_value
+    if fallback_fig is not None:
+        result['figure'] = fallback_fig
+    return result
+
 
 def bar_lift_by_type_interactive(
     df: pd.DataFrame,
@@ -279,14 +389,12 @@ def bar_lift_by_type_interactive(
         height=height,
         title=title,
         xaxis=dict(
-            title="Label Types", 
-            # titlefont=dict(color="black", size=16),
+            title="Label Types",
             tickangle=0, 
             tickfont=dict(color="black", size=14)
             ),
         yaxis=dict(
             title="Lift (%)", 
-            # titlefont=dict(color="black", size=16),
             zeroline=True, 
             zerolinewidth=1, 
             gridcolor="rgba(0,0,0,0.1)",

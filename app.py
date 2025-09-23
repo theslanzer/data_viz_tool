@@ -20,6 +20,7 @@ from modules.exporters import generate_circular_bar_chart_png, generate_bar_lift
 # -----------------------------
 
 def require_login():
+    session_state = st.session_state
     # Make a mutable copy of secrets (Authenticator mutates credentials)
     secrets = st.secrets.to_dict() if hasattr(st.secrets, "to_dict") else json.loads(json.dumps(dict(st.secrets)))
     creds   = secrets.get("credentials", {})
@@ -60,10 +61,17 @@ def require_login():
     if isinstance(login_result, tuple) and len(login_result) == 3:
         name, auth_status, username = login_result
     else:
-        session_state = st.session_state
         name = session_state.get("name")
         auth_status = session_state.get("authentication_status")
         username = session_state.get("username")
+
+    # Streamlit-authenticator marks logout by setting `logout` flag and flipping auth status to False
+    just_logged_out = bool(session_state.pop("logout", False))
+    if just_logged_out:
+        auth_status = None
+        session_state["authentication_status"] = None
+        session_state["name"] = None
+        session_state["username"] = None
 
     if auth_status:
         with st.sidebar:
@@ -87,7 +95,6 @@ def require_login():
     else:
         st.warning("Please enter your credentials")
     return None
-
 login_state = require_login()
 if login_state is None:
     st.stop()
@@ -272,28 +279,35 @@ with st.sidebar:
     st.header("6) Brand color theme")
     hex_input = st.text_input(
         "Enter HEX color(s)",
-        value="#6b21a8,#c026d3",
-        help="One color → gradient from light shade to that color. Multiple colors → gradient across them."
+        value="#ce1d1d,#fffff0",
+        help="One color gradient from light shade to that color. Multiple colors gradient across them."
     )
     # Optional Word Cloud density knobs
     with st.expander("Word Cloud density (optional)", expanded=False):
         wc_max_font = st.slider("Max font (px)", 28, 72, 60, 2)
         wc_padding  = st.slider("Padding (px)", 0, 20, 6, 1)
 
-    # Small inline preview
+    # Small inline preview + validation
+    hex_error: str | None = None
     try:
         preview_palette = generate_palette(hex_input, n=24)
-        from PIL import Image, ImageDraw
-        box_w, box_h = 20, 20
-        width_px = len(preview_palette) * box_w
-        img = Image.new("RGB", (width_px, box_h), "white")
-        draw = ImageDraw.Draw(img)
-        for i, h in enumerate(preview_palette):
-            draw.rectangle([i * box_w, 0, (i + 1) * box_w, box_h], fill=h)
-        st.image(img, caption=f"Preview ({len(preview_palette)} colors)", use_container_width=True)
-    except Exception as e:
-        st.caption("⚠️ Could not generate preview")
-        st.code(str(e))
+    except Exception as exc:
+        hex_error = str(exc)
+        preview_palette = generate_palette("", n=24)
+
+    from PIL import Image, ImageDraw
+    box_w, box_h = 20, 20
+    width_px = len(preview_palette) * box_w
+    img = Image.new("RGB", (width_px, box_h), "white")
+    draw = ImageDraw.Draw(img)
+    for i, h in enumerate(preview_palette):
+        draw.rectangle([i * box_w, 0, (i + 1) * box_w, box_h], fill=h)
+    st.image(img, caption=f"Preview ({len(preview_palette)} colors)", use_container_width=True)
+
+    if hex_error:
+        st.error("Invalid HEX color input. Falling back to the default palette.")
+        st.caption(hex_error)
+    palette_source_hex = hex_input if not hex_error else ""
 
 # -----------------------------
 # Build chart data
@@ -326,7 +340,7 @@ n_rows = int(df_chart.shape[0])
 if n_rows == 0:
     st.warning("No rows to display after your filters.")
 else:
-    palette = generate_palette(hex_input, n=n_rows)
+    palette = generate_palette(palette_source_hex, n=n_rows)
     chart_items: List[Dict[str, Any]] = []
 
 
@@ -470,7 +484,7 @@ if "Bar Chart" in chart_choices:
                 ):
                     header_left, header_right = st.columns([0.8, 0.2], gap="small")
                     with header_left:
-                        st.markdown('Hover over bars to see lift (%).')
+                        st.markdown('Hover a bar to see Lift (%).')
 
                     fig_bar = bar_lift_by_type_interactive(
                         df=data,
@@ -535,7 +549,7 @@ with tab_filtered:
 with tab_loaded:
     left, right = st.columns([1, 1])
     st.subheader("Loaded")
-    st.dataframe(df_loaded.head(50), use_container_width=True)
+    st.dataframe(df_loaded, use_container_width=True)
     st.caption(f"Rows: {df_loaded.shape[0]:,} • Cols: {df_loaded.shape[1]:,}")
     _render_labeltype_chips(df_loaded)
 

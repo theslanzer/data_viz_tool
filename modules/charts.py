@@ -282,16 +282,19 @@ def wordcloud_v2_component(
         font_cache: Dict[int, ImageFont.FreeTypeFont] = {}
 
         def _measure(word: str, font_size: int) -> tuple[int, int]:
-            if font_size not in font_cache:
+            cache_key = max(font_size, 1)
+            if cache_key not in font_cache:
                 try:
-                    font_cache[font_size] = ImageFont.truetype(effective_font_path, max(font_size, 1))
+                    if effective_font_path:
+                        font_cache[cache_key] = ImageFont.truetype(effective_font_path, cache_key)
+                    else:
+                        raise OSError('no font path available')
                 except Exception:
-                    font_cache[font_size] = ImageFont.load_default()
-            bbox = font_cache[font_size].getbbox(word)
+                    font_cache[cache_key] = ImageFont.load_default()
+            bbox = font_cache[cache_key].getbbox(word)
             width_val = bbox[2] - bbox[0]
             height_val = bbox[3] - bbox[1]
             return max(width_val, 1), max(height_val, 1)
-
         xs: List[float] = []
         ys: List[float] = []
         words_plot: List[str] = []

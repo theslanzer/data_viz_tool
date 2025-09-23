@@ -16,7 +16,11 @@ def _hex_to_rgb(h: str) -> Tuple[int, int, int]:
     h = _normalize_hex(h)
     if len(h) != 7:
         raise ValueError(f"Invalid hex color: {h}")
-    return tuple(int(h[i:i+2], 16) for i in (1, 3, 5))
+    return (
+        int(h[1:3], 16),
+        int(h[3:5], 16),
+        int(h[5:7], 16),
+    )
 
 def _rgb_to_hex(rgb: Tuple[int, int, int]) -> str:
     r, g, b = rgb

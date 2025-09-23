@@ -13,7 +13,7 @@ from modules.io_utils import read_uploaded_file, SUPPORTED_EXTS
 from modules.transformers import apply_transformations, top_labels, aggregate_lift_by_labeltype
 from modules.colors import generate_palette
 from modules.charts import circular_bar_interactive, wordcloud_v2_component, bar_lift_by_type_interactive
-from modules.exporters import generate_circular_bar_chart_png
+from modules.exporters import generate_circular_bar_chart_png, generate_bar_lift_by_type_png
 
 # -----------------------------
 # Login
@@ -437,39 +437,79 @@ else:
 
             chart_items.append({"title": "Word Cloud", "render": render_wc})
 
-    if "Bar Chart" in chart_choices:
-        required = {
-            "labelType", "numeratorWhenPresent", "denominatorWhenPresent",
-            "numeratorWhenAbsent", "denominatorWhenAbsent"
-        }
-        missing = [c for c in required if c not in df_transformed.columns]
-        if missing:
-            st.error(f"Bar chart needs columns missing in data: {missing}")
+
+if "Bar Chart" in chart_choices:
+    required = {
+        "labelType", "numeratorWhenPresent", "denominatorWhenPresent",
+        "numeratorWhenAbsent", "denominatorWhenAbsent"
+    }
+    missing = [c for c in required if c not in df_transformed.columns]
+    if missing:
+        st.error(f"Bar chart needs columns missing in data: {missing}")
+    else:
+        agg_source = df_transformed
+        filtered = False
+        if chosen_types and 'labelType' in agg_source.columns:
+            mask = agg_source['labelType'].astype(str).isin(chosen_types)
+            agg_source = agg_source.loc[mask].copy()
+            filtered = True
+        if agg_source.empty:
+            st.info('No data for the selected label types.')
         else:
-            agg_source = df_transformed
-            filtered = False
-            if chosen_types and 'labelType' in agg_source.columns:
-                mask = agg_source['labelType'].astype(str).isin(chosen_types)
-                agg_source = agg_source.loc[mask].copy()
-                filtered = True
-            if agg_source.empty:
-                st.info('No data for the selected label types.')
+            agg = aggregate_lift_by_labeltype(agg_source)
+            if agg.empty:
+                st.info('Aggregation produced no rows for the selected label types.')
             else:
-                agg = aggregate_lift_by_labeltype(agg_source)
-                if agg.empty:
-                    st.info('Aggregation produced no rows for the selected label types.')
-                else:
-                    bar_palette = generate_palette(hex_input, n=max(1, agg.shape[0]))
-                    title_suffix = 'Selected label types' if filtered else 'Full dataset'
+                bar_palette = generate_palette(hex_input, n=max(1, agg.shape[0]))
+                title_suffix = 'Selected label types' if filtered else 'Full dataset'
+
+                def render_bar(
+                    data=agg,
+                    colors=bar_palette,
+                    chart_title=f"Lift by Label Type ({title_suffix})",
+                ):
+                    header_left, header_right = st.columns([0.8, 0.2], gap="small")
+                    with header_left:
+                        st.markdown('Hover over bars to see lift (%).')
+
                     fig_bar = bar_lift_by_type_interactive(
-                        df=agg,
+                        df=data,
                         label_col='labelType',
                         lift_col='lift',
-                        colors=bar_palette,
-                        width=1000, height=600,
-                        title=f"Lift by Label Type ({title_suffix})",
+                        colors=colors,
+                        width=1000,
+                        height=600,
+                        title=chart_title,
                     )
-                    chart_items.append({"title": "Bar Chart Aggregated Lift", "figure": fig_bar})
+
+                    png_bytes = None
+                    try:
+                        png_bytes = generate_bar_lift_by_type_png(
+                            df=data,
+                            label_col='labelType',
+                            lift_col='lift',
+                            colors=colors,
+                            width=1000,
+                            height=600,
+                            title=chart_title,
+                        )
+                    except ValueError:
+                        png_bytes = None
+
+                    with header_right:
+                        if png_bytes:
+                            st.download_button(
+                                '⬇️ Download',
+                                data=png_bytes,
+                                file_name='bar_lift_by_type.png',
+                                mime='image/png',
+                                use_container_width=True,
+                                key='dl_bar_lift_png',
+                            )
+
+                    st.plotly_chart(fig_bar, use_container_width=True, config={"displayModeBar": False})
+
+                chart_items.append({"title": "Bar Chart Aggregated Lift", "render": render_bar})
 
     render_fig_grid(chart_items, cols=grid_cols)
 

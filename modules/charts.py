@@ -398,7 +398,7 @@ def bar_lift_by_type_interactive(
             zeroline=True, 
             zerolinewidth=1, 
             gridcolor="rgba(0,0,0,0.1)",
-            tickfont=dict(color="grey", size=14)
+            tickfont=dict(color="black", size=14)
             ),
         margin=dict(l=40, r=20, t=50, b=60),
         plot_bgcolor="white",

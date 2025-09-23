@@ -226,3 +226,90 @@ def generate_circular_bar_chart_png(
         plt.close(fig)
 
     return png_bytes
+
+
+def generate_bar_lift_by_type_png(
+    df: pd.DataFrame,
+    label_col: str = "labelType",
+    lift_col: str = "lift",
+    colors: List[str] | None = None,
+    width: int = 1000,
+    height: int = 600,
+    title: str = "Lift by Label Type",
+) -> bytes:
+    """Render the aggregated lift bar chart to PNG bytes using Matplotlib."""
+    data = df[[label_col, lift_col]].dropna().copy()
+    if data.empty:
+        raise ValueError("Bar chart dataframe is empty")
+
+    data = data.sort_values(lift_col, ascending=False).reset_index(drop=True)
+    lifts = data[lift_col].astype(float).to_numpy()
+    labels = data[label_col].astype(str).tolist()
+
+    if colors and len(colors) >= len(data):
+        bar_colors = list(colors[: len(data)])
+    else:
+        cmap = plt.get_cmap('viridis')
+        norm = mcolors.Normalize(
+            vmin=float(np.nanmin(lifts)) if lifts.size else 0.0,
+            vmax=float(np.nanmax(lifts)) if lifts.size else 1.0,
+        )
+        source_vals = lifts if lifts.size else np.array([0.0])
+        bar_colors = list(cmap(norm(source_vals)))
+
+    fig = plt.figure(figsize=(max(width, 200) / 100.0, max(height, 200) / 100.0), dpi=100)
+    ax = fig.add_subplot(111)
+    fig.patch.set_facecolor('white')
+    ax.set_facecolor('white')
+
+    bars = ax.bar(labels, lifts, color=bar_colors, linewidth=0.8, alpha=0.95)
+    ax.set_title(title)
+    ax.set_xlabel('Label Types')
+    ax.set_ylabel('Lift (%)')
+    ax.set_axisbelow(True)
+    ax.grid(False)
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.axhline(0, color='#1f1f1f', linewidth=0.8)
+
+    for tick in ax.get_xticklabels():
+        tick.set_rotation(0)
+        tick.set_fontsize(12)
+    ax.tick_params(axis='y', labelsize=12, colors='black')
+
+    if lifts.size:
+        y_max = float(np.nanmax(lifts))
+        y_min = float(np.nanmin(lifts))
+        pos_pad = max(abs(y_max) * 0.08, 1.0) if y_max > 0 else 1.0
+        neg_pad = max(abs(y_min) * 0.10, 1.0) if y_min < 0 else max(pos_pad * 0.25, 0.5)
+        top_limit = (y_max if y_max > 0 else 0.0) + pos_pad
+        bottom_limit = (y_min if y_min < 0 else 0.0) - neg_pad
+        ax.set_ylim(bottom=bottom_limit, top=top_limit)
+
+        for bar, value in zip(bars, lifts):
+            if value >= 0:
+                text_y = value + pos_pad * 0.2
+                va = 'bottom'
+            else:
+                text_y = value - neg_pad * 0.2
+                va = 'top'
+            ax.text(
+                bar.get_x() + bar.get_width() / 2.0,
+                text_y,
+                f"{value:.0f}%",
+                ha='center',
+                va=va,
+                fontsize=11,
+                color='#1f2937',
+            )
+
+    fig.tight_layout()
+    buffer = io.BytesIO()
+    try:
+        fig.savefig(buffer, format='PNG', facecolor='white', bbox_inches='tight', pad_inches=0.1)
+        buffer.seek(0)
+        png_bytes = buffer.getvalue()
+    finally:
+        plt.close(fig)
+
+    return png_bytes

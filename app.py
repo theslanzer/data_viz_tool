@@ -13,6 +13,7 @@ from modules.io_utils import read_uploaded_file, SUPPORTED_EXTS
 from modules.transformers import apply_transformations, top_labels, aggregate_lift_by_labeltype
 from modules.colors import generate_palette
 from modules.charts import circular_bar_interactive, wordcloud_v2_component, bar_lift_by_type_interactive
+from modules.exporters import generate_circular_bar_chart_png
 
 # -----------------------------
 # Login
@@ -328,19 +329,59 @@ else:
     palette = generate_palette(hex_input, n=n_rows)
     chart_items: List[Dict[str, Any]] = []
 
+
     if "Circular Bar" in chart_choices:
         if not pd.api.types.is_numeric_dtype(df_chart[value_col]):
             st.error(f"Selected value column `{value_col}` is not numeric.")
         else:
-            fig_circ = circular_bar_interactive(
-                df=df_chart,
-                label_col=label_col,
-                lift_col=value_col,
+            def render_circular(
+                data=df_chart,
+                label_col_name=label_col,
+                lift_col_name=value_col,
                 colors=palette,
-                width=900, height=900,
-                label_wrap=20,
-            )
-            chart_items.append({"title": "Circular Bar", "figure": fig_circ})
+            ):
+                header_left, header_right = st.columns([0.8, 0.2], gap="small")
+                with header_left:
+                    st.markdown('Hover a bar to see Lift (%).')
+
+                fig_circ = circular_bar_interactive(
+                    df=data,
+                    label_col=label_col_name,
+                    lift_col=lift_col_name,
+                    colors=colors,
+                    width=900,
+                    height=900,
+                    label_wrap=20,
+                )
+
+                png_bytes = None
+                try:
+                    png_bytes = generate_circular_bar_chart_png(
+                        df=data,
+                        label_col=label_col_name,
+                        lift_col=lift_col_name,
+                        colors=colors,
+                        label_wrap=20,
+                        width=900,
+                        height=900,
+                    )
+                except ValueError:
+                    png_bytes = None
+                with header_right:
+                    if png_bytes:
+                        st.download_button(
+                            '⬇️ Download',
+                            data=png_bytes,
+                            file_name='circular_bar_chart.png',
+                            mime='image/png',
+                            use_container_width=True,
+                            key=f"dl_circular_bar_png_{lift_col_name}",
+                        )
+
+                st.plotly_chart(fig_circ, use_container_width=True, config={"displayModeBar": False})
+
+            chart_items.append({"title": "Circular Bar", "render": render_circular})
+
 
     if "Word Cloud" in chart_choices:
         if not pd.api.types.is_numeric_dtype(df_chart[value_col]):
@@ -384,7 +425,7 @@ else:
                 with header_right:
                     if image_bytes:
                         st.download_button(
-                            'Download PNG',
+                            '⬇️ Download',
                             data=image_bytes,
                             file_name='wordcloud.png',
                             mime='image/png',

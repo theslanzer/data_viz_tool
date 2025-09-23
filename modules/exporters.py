@@ -1,6 +1,7 @@
 from __future__ import annotations
 from typing import Any, Dict, Tuple, List
 import io
+from textwrap import wrap
 
 import numpy as np
 import pandas as pd
@@ -8,6 +9,7 @@ import pandas as pd
 import matplotlib
 matplotlib.use("Agg")  # headless backend
 import matplotlib.pyplot as plt
+from matplotlib import colors as mcolors
 
 from wordcloud import WordCloud
 
@@ -132,3 +134,95 @@ def generate_wordcloud_png(
 
     return wc, png_bytes
 
+
+def generate_circular_bar_chart_png(
+    df: pd.DataFrame,
+    label_col: str = "labelName",
+    lift_col: str = "lift",
+    colors: List[str] | None = None,
+    label_wrap: int = 20,
+    theta_offset_rad: float = (.7 * np.pi / 2),
+    add_margin: float = 50.0,
+    inner_frac: float = 0.30,
+    show_spokes: bool = True,
+    spoke_dash: str = "dash",
+    width: int = 900,
+    height: int = 900,
+) -> bytes:
+    """Render a circular bar chart to PNG bytes using Matplotlib."""
+    data = df[[label_col, lift_col]].dropna().copy()
+    if data.empty:
+        raise ValueError("Circular bar chart dataframe is empty")
+
+    data = data.sort_values(by=lift_col, ascending=False).reset_index(drop=True)
+    angles = np.linspace(0.0, 2.0 * np.pi, len(data), endpoint=False)
+    angles = (angles + float(theta_offset_rad)) % (2.0 * np.pi)
+    lengths = data[lift_col].astype(float).to_numpy()
+    bar_width = (2.0 * np.pi / max(len(data), 1)) * 0.9
+
+    r_max = float(np.nanmax(lengths)) if lengths.size else 0.0
+    r_min = float(np.nanmin(lengths)) if lengths.size else 0.0
+    radial_ticks = np.linspace(r_min, r_max, 4)
+    if np.allclose(radial_ticks, radial_ticks[0]):
+        radial_ticks = np.linspace(radial_ticks[0], radial_ticks[0] + 1.0, 4)
+    radial_ticks = np.unique(np.round(radial_ticks, 0))
+
+    if colors and len(colors) >= len(data):
+        bar_colors = list(reversed(colors[: len(data)]))
+    else:
+        cmap = plt.get_cmap("viridis")
+        norm = mcolors.Normalize(
+            vmin=r_min,
+            vmax=r_max if not np.isclose(r_max, r_min) else r_min + 1.0,
+        )
+        source_values = lengths if lengths.size else np.array([0.0])
+        bar_colors = cmap(norm(source_values))
+
+    outer_radius = r_max + float(add_margin)
+    inner_radius = -abs(r_max) * float(inner_frac)
+
+    fig = plt.figure(figsize=(max(width, 200) / 100.0, max(height, 200) / 100.0), dpi=100)
+    ax = fig.add_subplot(111, projection="polar")
+    fig.patch.set_facecolor("white")
+    ax.set_facecolor("white")
+
+    ax.set_theta_offset(float(theta_offset_rad))
+    ax.set_ylim(inner_radius, outer_radius)
+
+    ax.bar(angles, lengths, color=bar_colors, width=bar_width, alpha=0.9, zorder=10)
+
+    if show_spokes:
+        linestyle = (0, (4, 4)) if spoke_dash == "dash" else "solid"
+        ax.vlines(angles, 0, r_max, colors="#1f1f1f", linestyles=linestyle, linewidth=1.0, zorder=11)
+    ax.xaxis.grid(False)
+
+    if label_wrap and label_wrap > 0:
+        xtick_labels = ["\n".join(wrap(str(label), label_wrap)) for label in data[label_col]]
+    else:
+        xtick_labels = data[label_col].astype(str).tolist()
+    ax.set_xticks(angles)
+    ax.set_xticklabels(xtick_labels, size=12)
+
+    ax.set_yticks(radial_ticks)
+    ax.set_yticklabels([])
+
+    ax.spines["start"].set_color("none")
+    ax.spines["polar"].set_color("none")
+    for tick in ax.xaxis.get_major_ticks():
+        tick.set_pad(10)
+
+    pad = 10.0
+    annotation_angle = float(theta_offset_rad) - (0.2 * np.pi / 2.0)
+    for val in radial_ticks:
+        ax.text(annotation_angle, float(val) + pad, f"{int(val)}", ha="center", size=10)
+
+    # fig.tight_layout()
+    buffer = io.BytesIO()
+    try:
+        fig.savefig(buffer, format="PNG", facecolor="white", bbox_inches="tight", pad_inches=0.1)
+        buffer.seek(0)
+        png_bytes = buffer.getvalue()
+    finally:
+        plt.close(fig)
+
+    return png_bytes

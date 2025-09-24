@@ -34,72 +34,78 @@ def require_login():
         preauthorized=authcfg.get("preauthorized", []),
     )
 
-    login_func = authenticator.login
-    login_sig = inspect.signature(login_func)
-    login_params = login_sig.parameters
-    requires_form_name = (
-        "form_name" in login_params
-        and login_params["form_name"].default is inspect._empty
-    )
+    login_placeholder = st.empty()
+    message_placeholder = None
 
-    auth_container_left, auth_container_center, auth_container_right = st.columns([2, 1, 2])
-    with auth_container_center:
-        status_placeholder = st.empty()
-        if requires_form_name:
-            login_result = login_func("Login", location="main")
-        else:
-            login_kwargs = {}
-            if "form_name" in login_params and login_params["form_name"].default is not inspect._empty:
-                login_kwargs["form_name"] = "Login"
-            if "location" in login_params:
-                login_kwargs["location"] = "main"
-            if "max_login_attempts" in login_params:
-                login_kwargs["max_login_attempts"] = 3
-            if "fields" in login_params:
-                login_kwargs["fields"] = {"Form name": "Login"}
-            if "key" in login_params:
-                login_kwargs.setdefault("key", "main_login_form")
-            login_result = login_func(**login_kwargs)
-    
-    if isinstance(login_result, tuple) and len(login_result) == 3:
-        name, auth_status, username = login_result
-    else:
-        name = session_state.get("name")
-        auth_status = session_state.get("authentication_status")
-        username = session_state.get("username")
+    should_render_login = not session_state.get("authentication_status")
+    if should_render_login:
+        with login_placeholder.container():
+            left_spacer, form_col, right_spacer = st.columns([1, 2, 1])
+            with form_col:
+                message_placeholder = st.empty()
+                login_func = authenticator.login
+                login_params = inspect.signature(login_func).parameters
+                login_kwargs: Dict[str, Any] = {}
+                if "form_name" in login_params:
+                    login_kwargs["form_name"] = "Login"
+                if "location" in login_params:
+                    login_kwargs["location"] = "main"
+                if "max_login_attempts" in login_params:
+                    login_kwargs["max_login_attempts"] = 3
+                if "fields" in login_params:
+                    login_kwargs["fields"] = {
+                        "Form name": "Login",
+                        "Username": "Username",
+                        "Password": "Password",
+                        "Login": "Login",
+                    }
+                if "key" in login_params:
+                    login_kwargs["key"] = "main_login_form"
+                login_func(**login_kwargs)
 
-    # Streamlit-authenticator marks logout by setting `logout` flag and flipping auth status to False
+    auth_status = session_state.get("authentication_status")
+    name = session_state.get("name")
+    username = session_state.get("username")
     just_logged_out = bool(session_state.pop("logout", False))
-    if just_logged_out:
-        auth_status = None
-        session_state["authentication_status"] = None
-        session_state["name"] = None
-        session_state["username"] = None
 
     if auth_status:
-        status_placeholder.empty()
-        with st.sidebar:
-            logout_func = authenticator.logout
-            logout_sig = inspect.signature(logout_func)
-            logout_params = logout_sig.parameters
-
-            if "button_name" in logout_params or "location" in logout_params:
-                logout_kwargs = {}
-                if "button_name" in logout_params:
-                    logout_kwargs["button_name"] = "Logout"
-                if "location" in logout_params:
-                    logout_kwargs["location"] = "sidebar"
-                logout_func(**logout_kwargs)
-            else:
+        if message_placeholder is not None:
+            message_placeholder.empty()
+        login_placeholder.empty()
+        logout_func = authenticator.logout
+        logout_params = inspect.signature(logout_func).parameters
+        logout_kwargs: Dict[str, Any] = {}
+        use_kwargs = False
+        if "button_name" in logout_params:
+            logout_kwargs["button_name"] = "Logout"
+            use_kwargs = True
+        if "location" in logout_params:
+            logout_kwargs["location"] = "sidebar"
+            use_kwargs = True
+        if "use_container_width" in logout_params:
+            logout_kwargs["use_container_width"] = True
+            use_kwargs = True
+        if "key" in logout_params:
+            logout_kwargs["key"] = "logout_button"
+            use_kwargs = True
+        if use_kwargs:
+            logout_func(**logout_kwargs)
+        else:
+            with st.sidebar:
                 logout_func("Logout")
         return {"name": name, "username": username}
 
-    status_placeholder.empty()
-    if auth_status is False:
-        status_placeholder.error("Username/password is incorrect")
+    if message_placeholder is None:
+        message_placeholder = st.empty()
+
+    if just_logged_out:
+        message_placeholder.info("You have been logged out. Please enter your credentials to sign in again.")
+    elif auth_status is False:
+        message_placeholder.error("Username/password is incorrect")
     else:
-        status_placeholder.warning("Please enter your credentials")
+        message_placeholder.warning("Please enter your credentials")
     return None
+
 login_state = require_login()
 if login_state is None:
     st.stop()

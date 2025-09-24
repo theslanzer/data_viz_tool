@@ -128,7 +128,7 @@ def render_fig_grid(items, cols=2):
                     st.markdown(f"##### {title}")
                 figure = entry.get("figure")
                 if figure is not None:
-                    st.plotly_chart(figure, use_container_width=True)
+                    st.plotly_chart(figure, width='stretch')
                 else:
                     renderer = entry.get("render")
                     if callable(renderer):
@@ -307,7 +307,7 @@ with st.sidebar:
     draw = ImageDraw.Draw(img)
     for i, h in enumerate(preview_palette):
         draw.rectangle([i * box_w, 0, (i + 1) * box_w, box_h], fill=h)
-    st.image(img, caption=f"Preview ({len(preview_palette)} colors)", use_container_width=True)
+    st.image(img, caption=f"Preview ({len(preview_palette)} colors)", width='stretch')
 
     if hex_error:
         st.error("Invalid HEX color input. Falling back to the default palette.")
@@ -393,11 +393,11 @@ else:
                             data=png_bytes,
                             file_name='circular_bar_chart.png',
                             mime='image/png',
-                            use_container_width=True,
+                            width='stretch',
                             key=f"dl_circular_bar_png_{lift_col_name}",
                         )
 
-                st.plotly_chart(fig_circ, use_container_width=True, config={"displayModeBar": False})
+                st.plotly_chart(fig_circ, width='stretch', config={"displayModeBar": False})
 
             chart_items.append({"title": "Circular Bar", "render": render_circular})
 
@@ -449,10 +449,10 @@ else:
                             file_name='wordcloud.png',
                             mime='image/png',
                             key=f"dl_wordcloud_png_{value_col}",
-                            use_container_width=True,
+                            width='stretch',
                         )
                 if fallback_fig is not None:
-                    st.plotly_chart(fallback_fig, use_container_width=True, config={"displayModeBar": False})
+                    st.plotly_chart(fallback_fig, width='stretch', config={"displayModeBar": False})
 
             chart_items.append({"title": "Word Cloud", "render": render_wc})
 
@@ -498,7 +498,7 @@ if "Bar Chart" in chart_choices:
                         colors=colors,
                         width=1000,
                         height=600,
-                        title=chart_title,
+
                     )
 
                     png_bytes = None
@@ -522,11 +522,11 @@ if "Bar Chart" in chart_choices:
                                 data=png_bytes,
                                 file_name='bar_lift_by_type.png',
                                 mime='image/png',
-                                use_container_width=True,
+                                width='stretch',
                                 key='dl_bar_lift_png',
                             )
 
-                    st.plotly_chart(fig_bar, use_container_width=True, config={"displayModeBar": False})
+                    st.plotly_chart(fig_bar, width='stretch', config={"displayModeBar": False})
 
                 chart_items.append({"title": "Bar Chart Aggregated Lift", "render": render_bar})
 
@@ -547,14 +547,14 @@ with tab_filtered:
     if df_filtered.shape[0] == 0:
         st.warning("No rows after Top-N / Label Type filters. Adjust your options in the sidebar.")
     else:
-        st.dataframe(df_filtered.head(50), use_container_width=True)
+        st.dataframe(df_filtered.head(50), width='stretch')
         st.caption(f"Rows: {df_filtered.shape[0]:,} • Cols: {df_filtered.shape[1]:,}")
         _render_labeltype_chips(df_filtered)
 
 with tab_loaded:
     left, right = st.columns([1, 1])
     st.subheader("Loaded")
-    st.dataframe(df_loaded, use_container_width=True)
+    st.dataframe(df_loaded, width='stretch')
     st.caption(f"Rows: {df_loaded.shape[0]:,} • Cols: {df_loaded.shape[1]:,}")
     _render_labeltype_chips(df_loaded)
 

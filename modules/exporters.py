@@ -168,7 +168,7 @@ def generate_circular_bar_chart_png(
     radial_ticks = np.unique(np.round(radial_ticks, 0))
 
     if colors and len(colors) >= len(data):
-        bar_colors = list(reversed(colors[: len(data)]))
+        bar_colors = list(colors[: len(data)])
     else:
         cmap = plt.get_cmap("viridis")
         norm = mcolors.Normalize(
@@ -235,7 +235,7 @@ def generate_bar_lift_by_type_png(
     colors: List[str] | None = None,
     width: int = 1000,
     height: int = 600,
-    title: str = "Lift by Label Type",
+    title: str = "",
 ) -> bytes:
     """Render the aggregated lift bar chart to PNG bytes using Matplotlib."""
     data = df[[label_col, lift_col]].dropna().copy()

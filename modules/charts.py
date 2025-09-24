@@ -364,7 +364,6 @@ def bar_lift_by_type_interactive(
     colors: list[str] | None = None,
     width: int = 1000,
     height: int = 600,
-    title: str = "Lift by Label Type",
 ) -> go.Figure:
     """
     Interactive bar chart; assumes df already aggregated by label type with a `lift` column.
@@ -390,14 +389,13 @@ def bar_lift_by_type_interactive(
     fig.update_layout(
         width=width,
         height=height,
-        title=title,
         xaxis=dict(
-            title="Label Types",
+            title=dict(text="Label Types", font=dict(color="#000000", size=16)),
             tickangle=0, 
-            tickfont=dict(color="black", size=14)
+            tickfont=dict(color="black", size=14),
             ),
         yaxis=dict(
-            title="Lift (%)", 
+            title=dict(text="Lift (%)", font=dict(color="#000000", size=16)),
             zeroline=True, 
             zerolinewidth=1, 
             gridcolor="rgba(0,0,0,0.1)",

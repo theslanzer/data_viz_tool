@@ -128,7 +128,7 @@ def render_fig_grid(items, cols=2):
                     st.markdown(f"##### {title}")
                 figure = entry.get("figure")
                 if figure is not None:
-                    st.plotly_chart(figure, width='stretch')
+                    st.plotly_chart(figure, use_container_width=True)
                 else:
                     renderer = entry.get("render")
                     if callable(renderer):
@@ -397,7 +397,7 @@ else:
                             key=f"dl_circular_bar_png_{lift_col_name}",
                         )
 
-                st.plotly_chart(fig_circ, width='stretch', config={"displayModeBar": False})
+                st.plotly_chart(fig_circ, use_container_width=True, config={"displayModeBar": False})
 
             chart_items.append({"title": "Circular Bar", "render": render_circular})
 
@@ -452,7 +452,7 @@ else:
                             width='stretch',
                         )
                 if fallback_fig is not None:
-                    st.plotly_chart(fallback_fig, width='stretch', config={"displayModeBar": False})
+                    st.plotly_chart(fallback_fig, use_container_width=True, config={"displayModeBar": False})
 
             chart_items.append({"title": "Word Cloud", "render": render_wc})
 
@@ -526,7 +526,7 @@ if "Bar Chart" in chart_choices:
                                 key='dl_bar_lift_png',
                             )
 
-                    st.plotly_chart(fig_bar, width='stretch', config={"displayModeBar": False})
+                    st.plotly_chart(fig_bar, use_container_width=True, config={"displayModeBar": False})
 
                 chart_items.append({"title": "Bar Chart Aggregated Lift", "render": render_bar})
 
@@ -557,4 +557,5 @@ with tab_loaded:
     st.dataframe(df_loaded, width='stretch')
     st.caption(f"Rows: {df_loaded.shape[0]:,} • Cols: {df_loaded.shape[1]:,}")
     _render_labeltype_chips(df_loaded)
+
 

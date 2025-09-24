@@ -42,22 +42,25 @@ def require_login():
         and login_params["form_name"].default is inspect._empty
     )
 
-    if requires_form_name:
-        login_result = login_func("Login", location="main")
-    else:
-        login_kwargs = {}
-        if "form_name" in login_params and login_params["form_name"].default is not inspect._empty:
-            login_kwargs["form_name"] = "Login"
-        if "location" in login_params:
-            login_kwargs["location"] = "main"
-        if "max_login_attempts" in login_params:
-            login_kwargs["max_login_attempts"] = 3
-        if "fields" in login_params:
-            login_kwargs["fields"] = {"Form name": "Login"}
-        if "key" in login_params:
-            login_kwargs.setdefault("key", "main_login_form")
-        login_result = login_func(**login_kwargs)
-
+    auth_container_left, auth_container_center, auth_container_right = st.columns([2, 1, 2])
+    with auth_container_center:
+        status_placeholder = st.empty()
+        if requires_form_name:
+            login_result = login_func("Login", location="main")
+        else:
+            login_kwargs = {}
+            if "form_name" in login_params and login_params["form_name"].default is not inspect._empty:
+                login_kwargs["form_name"] = "Login"
+            if "location" in login_params:
+                login_kwargs["location"] = "main"
+            if "max_login_attempts" in login_params:
+                login_kwargs["max_login_attempts"] = 3
+            if "fields" in login_params:
+                login_kwargs["fields"] = {"Form name": "Login"}
+            if "key" in login_params:
+                login_kwargs.setdefault("key", "main_login_form")
+            login_result = login_func(**login_kwargs)
+    
     if isinstance(login_result, tuple) and len(login_result) == 3:
         name, auth_status, username = login_result
     else:
@@ -74,6 +77,7 @@ def require_login():
         session_state["username"] = None
 
     if auth_status:
+        status_placeholder.empty()
         with st.sidebar:
             logout_func = authenticator.logout
             logout_sig = inspect.signature(logout_func)
@@ -90,10 +94,11 @@ def require_login():
                 logout_func("Logout")
         return {"name": name, "username": username}
 
+    status_placeholder.empty()
     if auth_status is False:
-        st.error("Username/password is incorrect")
+        status_placeholder.error("Username/password is incorrect")
     else:
-        st.warning("Please enter your credentials")
+        status_placeholder.warning("Please enter your credentials")
     return None
 login_state = require_login()
 if login_state is None:
@@ -384,7 +389,7 @@ else:
                 with header_right:
                     if png_bytes:
                         st.download_button(
-                            '⬇️ Download',
+                            ' ⬇️ ',
                             data=png_bytes,
                             file_name='circular_bar_chart.png',
                             mime='image/png',
@@ -439,7 +444,7 @@ else:
                 with header_right:
                     if image_bytes:
                         st.download_button(
-                            '⬇️ Download',
+                            ' ⬇️ ',
                             data=image_bytes,
                             file_name='wordcloud.png',
                             mime='image/png',
@@ -513,7 +518,7 @@ if "Bar Chart" in chart_choices:
                     with header_right:
                         if png_bytes:
                             st.download_button(
-                                '⬇️ Download',
+                                ' ⬇️ ',
                                 data=png_bytes,
                                 file_name='bar_lift_by_type.png',
                                 mime='image/png',

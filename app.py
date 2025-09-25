@@ -169,7 +169,7 @@ def _cached_transform(df: pd.DataFrame, do_basic: bool) -> pd.DataFrame:
 # -----------------------------
 st.set_page_config(page_title="Visualizations Generator", layout="wide")
 st.title("Viz Builder")
-st.caption("Upload → transform → pick Top-N (per type) → filter by label type → choose brand colors → charts in a grid.")
+st.caption("Upload → transform → pick Top-N (per type) → filter by label type → choose brand colors → charts.")
 
 # -----------------------------
 # Sidebar — Upload
